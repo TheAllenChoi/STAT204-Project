@@ -1,0 +1,66 @@
+---
+title: "Project-Proposal"
+format: pdf
+author: Allen Choi
+---
+
+
+```{r}
+#| include: false
+library(tidyverse)
+library(haven)
+library(car)
+
+data <- read_sav("data.sav")
+
+subset <- data |> 
+    select(Zage_screening, gender, Zdcog_ti, Zdsom_ti, nfc_group) |> 
+    filter(nfc_group %in% c("2", "1")) |> # 2 is no need, 1 is unmet need 
+    # but why only filter out these two groups??? oh for the logistic regression this is the response...
+    # caption says 395 subset of people but dropping NAs removes a portion (9 people)
+    # drop_na() |> 
+    mutate(nfc_group = as_factor(nfc_group),
+           nfc_group = relevel(nfc_group, ref = "No need"),
+           gender = as_factor(gender))
+
+subset$nfc_group
+# data |> 
+#     select(nfc_group)
+
+a <- glm(nfc_group ~ Zage_screening + gender + Zdcog_ti * Zdsom_ti, family = "binomial", data = subset)
+
+summary(a)
+
+Anova(a, test.statistic = "Wald") # this is what the paper has
+
+# Prefer this
+Anova(a, test.statistic = "LR")
+```
+
+# 1. Project Identification
+The paper we chose is "Is type of depressive symptoms associated with patient-perceived need for professional psychological care in depressed individuals with diabetes?", which is available here:
+https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0212304
+
+<!-- The paper uses logistic regression on age, gender, and two partitions of the BDI-II test which has 21 questions in total. The first partition (cognitive-affective domain) comprises items 1-14, and the second partition (somatic domain) comparises items 15-21. These explanatory variables are used to predict whether respondents had either "Unmet need" vs. "No need" for psychological help.
+
+```{r}
+head(data, 5)
+
+Anova(a, test.statistic = "Wald")
+```
+
+We replicated the paper's p-values using logistic regression and the variables stated in the paper, though there were several inconsistencies that we noticed as we followed the process. -->
+
+# 2. Research Questions / Objectives
+1. What questions, if any, in the BDI-II test specifically are associated with the response variable (Unmet need / No need)?
+2. Are there any groups associated with the respondents' answers, and what variables do those groups have in common?
+3. Can we fit a "better" logistic regression model that accounts for statistically significantly more variability in the response compared to the model in the paper?
+
+# 3. Preliminary Methods Plan
+At a base level, since the paper requires logistic regression, the entire class topic on logistic regression will likely be needed. We will also need PCA & Clustering for Question 2 to divide the respondents' responses into groups that we can hopefully visually see. We may also need the regularization section to fit a penalized logistic regression model to see if that is useful.
+
+# 4. Data access confirmation
+Data is available to download at: https://doi.org/10.1371/journal.pone.0212304.s001 which is on the supporting information section of the article.
+
+<!-- # 5. Team member names
+Allen Choi -->

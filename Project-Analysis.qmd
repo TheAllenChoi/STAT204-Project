@@ -1,0 +1,171 @@
+---
+title: "Project-Analysis"
+format: html
+author: "Allen Choi"
+embed-resources: true
+
+---
+
+
+```{r}
+library(tidyverse)
+library(haven)
+library(car)
+library(glmnet)
+library(doParallel)
+registerDoParallel(cores = detectCores() - 6)
+
+data <- read_sav("data/data.sav")
+
+subset <- data |> 
+    select(Zage_screening, gender, Zdcog_ti, Zdsom_ti, nfc_group) |> 
+    filter(nfc_group %in% c("2", "1")) |> # 2 is no need, 1 is unmet need 
+    # but why only filter out these two groups??? oh for the logistic regression this is the response...
+    # caption says 395 subset of people but dropping NAs removes a portion (9 people)
+    drop_na() |> 
+    mutate(nfc_group = as_factor(nfc_group),
+           nfc_group = relevel(nfc_group, ref = "No need"),
+           gender = as_factor(gender))
+
+# data |> 
+#     select(nfc_group)
+
+paper_model <- glm(nfc_group ~ Zage_screening + gender + Zdcog_ti * Zdsom_ti, family = "binomial", data = subset)
+
+summary(paper_model)
+
+Anova(paper_model, test.statistic = "Wald") # this is what the paper has
+
+# Prefer this
+# Anova(paper_model, test.statistic = "LR")
+```
+
+## Paper Investigation
+
+```{r}
+test <- data |> 
+    select(bdi1r:bdi21r, dcog_ti, dsom_ti, Zdsom_ti, Zdcog_ti, nfc_group, Zage_screening, gender) |> 
+    filter(nfc_group %in% c("2", "1")) |> 
+    rowwise() |> 
+    mutate(sum_dcog = sum(c_across(bdi1r:bdi14r), na.rm = T),
+           sum_dsom = sum(c_across(bdi15r:bdi21r), na.rm = T)) |> 
+    ungroup() |> 
+    mutate(zsum_dcog = scale(sum_dcog),
+           zsum_dsom = scale(sum_dsom)) |> 
+    mutate(nfc_group = as_factor(nfc_group),
+           nfc_group = relevel(nfc_group, ref = "No need"),
+           gender = as_factor(gender))
+
+    # filter(!(Zdsom_ti == zsum_dsom))
+
+paper_model <- glm(nfc_group ~ Zage_screening + gender + zsum_dcog * zsum_dsom, family = "binomial", data = test)
+
+summary(paper_model)
+
+Anova(paper_model, test.statistic = "Wald") # this is what the paper has
+```
+
+Weird anomalies with the dataset:
+1. Missing values in the ZAge_Screening variable, when there are no missing values in the age screening variable
+
+```{r}
+no_subset <- data |> 
+    filter(nfc_group %in% c(1, 2)) |> 
+    select(bdi1r:bdi21r) |> 
+    drop_na()
+
+biplot(prcomp(no_subset), scale = 0,
+       cex = 0.8)
+
+screeplot(prcomp(no_subset))
+
+prcomp(no_subset)
+
+
+no_need_subset <- data |> 
+    filter(nfc_group %in% c(2)) |> 
+    select(bdi1r:bdi21r) |> 
+    drop_na()
+
+plot(
+prcomp(no_need_subset)$x[, 1],
+prcomp(no_need_subset)$x[, 2]
+)
+
+unmet_need_subset <- data |> 
+    filter(nfc_group %in% c(1)) |> 
+    select(bdi1r:bdi21r) |> 
+    drop_na()
+
+biplot(prcomp(no_need_subset), scale = 0,
+       cex = 0.8)
+
+biplot(prcomp(unmet_need_subset), scale = 0,
+       cex = 0.8)
+
+screeplot(prcomp(unmet_need_subset))
+```
+
+```{r}
+set.seed(204)
+cleaned_data <- data |> 
+    filter(nfc_group %in% c(1, 2)) |> 
+    mutate(nfc_group = factor(nfc_group)) |> 
+    select(nfc_group, bdi1r:bdi21r, Zage_screening, gender) |> 
+    drop_na()
+
+X <- cleaned_data |> 
+    select(!nfc_group)
+y <- cleaned_data |> 
+    select(nfc_group) |> 
+    mutate(nfc_group = ifelse(nfc_group == 1, 1, 0))
+
+cv_lasso <- cv.glmnet(as.matrix(X), as.matrix(y), family = "binomial", nfolds = 20,
+                      nlambda = 200, standardize = F, parallel = T, alpha = 1,
+                      type.measure = "auc")
+
+
+best <- glmnet(as.matrix(X), as.matrix(y), family = "binomial", alpha = 1, 
+             lambda = cv_lasso$lambda.1se, type.measure = "auc", standardize = F)
+coef(best)
+
+plot(cv_lasso)
+
+plot(best)
+```
+
+## Compare all questions vs. the 3 variables chosen
+```{r}
+all_data <- data |> 
+    drop_na(Zage_screening, gender, bdi1r:bdi21r, nfc_group) |> 
+    select(Zage_screening, gender, bdi1r:bdi21r, nfc_group) |> 
+    filter(nfc_group %in% c("2", "1")) |> # 2 is no need, 1 is unmet need 
+    # but why only filter out these two groups??? oh for the logistic regression this is the response...
+    # caption says 395 subset of people but dropping NAs removes a portion (9 people)
+    # drop_na() |> 
+    mutate(nfc_group = as_factor(nfc_group),
+           nfc_group = relevel(nfc_group, ref = "No need"),
+           gender = as_factor(gender))
+
+mini_data <- data |> 
+    drop_na(Zage_screening, gender, bdi1r:bdi21r, nfc_group) |> 
+    select(Zage_screening, gender, bdi5r, bdi17r, nfc_group) |> 
+    filter(nfc_group %in% c("2", "1")) |> # 2 is no need, 1 is unmet need 
+    # but why only filter out these two groups??? oh for the logistic regression this is the response...
+    # caption says 395 subset of people but dropping NAs removes a portion (9 people)
+    # drop_na() |> 
+    mutate(nfc_group = as_factor(nfc_group),
+           nfc_group = relevel(nfc_group, ref = "No need"),
+           gender = as_factor(gender))
+
+all_test <- glm(nfc_group ~ ., data = all_data,
+                  family = "binomial")
+
+quick_test <- glm(nfc_group ~ bdi5r + bdi17r + Zage_screening, data = mini_data,
+                  family = "binomial")
+
+
+anova(quick_test, all_test)
+```
+
+P-value = 0.2 about so little evidence the more complex model is significantly better
